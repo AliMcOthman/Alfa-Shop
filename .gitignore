@@ -20,3 +20,5 @@ dist/
 
 # WebStorm settings
 .idea/
+# Secret environment variables
+backend/.env
