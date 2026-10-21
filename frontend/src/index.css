@@ -114,3 +114,37 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Header nur im Shop */
+.shop-header {
+    background-color: #172554;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.shop-header .navbar-brand {
+    color: #ffffff;
+}
+
+/* Warenkorb: dunkler Text auf hellem Hintergrund */
+.shop-header .btn-light {
+    color: #172554;
+    border-color: #ffffff;
+}
+
+.shop-header .btn-light:hover {
+    background-color: #e9ecef;
+    color: #172554;
+}
+
+/* Admin-Button, falls sichtbar */
+.shop-header .btn-outline-light {
+    color: #ffffff;
+    border-color: #ffffff;
+}
+
+.shop-header .btn-outline-light:hover {
+    background-color: #ffffff;
+    color: #172554;
+}

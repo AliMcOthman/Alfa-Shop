@@ -1,15 +1,18 @@
 import express from "express";
 import cors from "cors";
 import sequelize from "./db.js";
+import { Order, OrderItem } from "./models/OrderRelations.js";
 import Product from "./models/Product.js";
+import Customer from "./models/Customer.js";
+import Admin from "./models/Admin.js";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs"
-import Admin from "./models/Admin.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+
 
 dotenv.config();
 // Dateipfad und Upload-Ordner bestimmen
@@ -268,6 +271,163 @@ app.post("/api/admin/login", async (req, res) => {
     }
 });
 
+
+
+app.post("/api/customers/register", async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+
+        // Eingaben prüfen
+        if (
+            typeof name !== "string" ||
+            typeof email !== "string" ||
+            typeof password !== "string" ||
+            !name.trim() ||
+            !email.trim() ||
+            !password
+        ) {
+            return res.status(400).json({
+                message: "Bitte füllen Sie alle Pflichtfelder aus.",
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // E-Mail-Format prüfen
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+            return res.status(400).json({
+                message: "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
+            });
+        }
+
+        // Passwortlänge prüfen
+        if (password.length < 8) {
+            return res.status(400).json({
+                message: "Das Passwort muss mindestens 8 Zeichen lang sein.",
+            });
+        }
+
+        // Prüfen, ob die E-Mail bereits registriert ist
+        const existingCustomer = await Customer.findOne({
+            where: { email: normalizedEmail },
+        });
+
+        if (existingCustomer) {
+            return res.status(409).json({
+                message: "Diese E-Mail-Adresse ist bereits registriert.",
+            });
+        }
+
+        // Passwort sicher hashen
+        const passwordHash = await bcrypt.hash(password, 12);
+
+        // Kundenkonto erstellen
+        const customer = await Customer.create({
+            name: name.trim(),
+            email: normalizedEmail,
+            passwordHash,
+        });
+
+        return res.status(201).json({
+            message: "Ihr Kundenkonto wurde erfolgreich erstellt.",
+            customer: {
+                id: customer.id,
+                name: customer.name,
+                email: customer.email,
+            },
+        });
+    } catch (error) {
+        console.error("Fehler bei der Kundenregistrierung:", error);
+
+        // Doppelte E-Mail auch bei parallelen Anfragen abfangen
+        if (error.name === "SequelizeUniqueConstraintError") {
+            return res.status(409).json({
+                message: "Diese E-Mail-Adresse ist bereits registriert.",
+            });
+        }
+
+        if (error.name === "SequelizeValidationError") {
+            return res.status(400).json({
+                message: "Bitte überprüfen Sie Ihre Eingaben.",
+            });
+        }
+
+        return res.status(500).json({
+            message: "Die Registrierung ist fehlgeschlagen.",
+        });
+    }
+});
+
+app.post("/api/customers/login", async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (
+            typeof email !== "string" ||
+            typeof password !== "string" ||
+            !email.trim() ||
+            !password
+        ) {
+            return res.status(400).json({
+                message: "Bitte geben Sie E-Mail und Passwort ein.",
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // Kundenkonto suchen
+        const customer = await Customer.findOne({
+            where: { email: normalizedEmail },
+        });
+
+        if (!customer) {
+            return res.status(401).json({
+                message: "E-Mail-Adresse oder Passwort ist falsch.",
+            });
+        }
+
+        // Passwort überprüfen
+        const passwordIsValid = await bcrypt.compare(
+            password,
+            customer.passwordHash
+        );
+
+        if (!passwordIsValid) {
+            return res.status(401).json({
+                message: "E-Mail-Adresse oder Passwort ist falsch.",
+            });
+        }
+
+        // Kundentoken erstellen
+        const token = jwt.sign(
+            {
+                customerId: customer.id,
+                role: "customer",
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "1h",
+            }
+        );
+
+        return res.status(200).json({
+            message: "Anmeldung erfolgreich.",
+            token,
+            customer: {
+                id: customer.id,
+                name: customer.name,
+                email: customer.email,
+            },
+        });
+    } catch (error) {
+        console.error("Fehler beim Kunden-Login:", error);
+
+        return res.status(500).json({
+            message: "Die Anmeldung ist fehlgeschlagen.",
+        });
+    }
+});
+
 /* Produkt bearbeiten */
 app.put("/api/products/:id", verifyAdmin, async (req, res) => {
     try {
@@ -355,6 +515,56 @@ app.delete("/api/products/:id",verifyAdmin , async (req, res) => {
         });
     }
 });
+
+// Bestellung löschen – nur für Admins
+app.delete("/api/orders/:id", verifyAdmin, async (req, res) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+        const orderId = Number(req.params.id);
+
+        if (!Number.isInteger(orderId) || orderId <= 0) {
+            await transaction.rollback();
+
+            return res.status(400).json({
+                message: "Ungültige Bestellnummer."
+            });
+        }
+
+        const order = await Order.findByPk(orderId, { transaction });
+
+        if (!order) {
+            await transaction.rollback();
+
+            return res.status(404).json({
+                message: "Bestellung wurde nicht gefunden."
+            });
+        }
+
+        // Zuerst die Positionen der Bestellung löschen
+        await OrderItem.destroy({
+            where: { orderId },
+            transaction
+        });
+
+        // Danach die Bestellung löschen
+        await order.destroy({ transaction });
+
+        await transaction.commit();
+
+        return res.json({
+            message: "Bestellung erfolgreich gelöscht."
+        });
+    } catch (error) {
+        await transaction.rollback();
+
+        console.error("Fehler beim Löschen der Bestellung:", error);
+
+        return res.status(500).json({
+            message: "Bestellung konnte nicht gelöscht werden."
+        });
+    }
+});
 // Produktbild hochladen
 app.post("/api/upload", verifyAdmin ,(req, res, next) => {
     upload.single("image")(req, res, (err) => {
@@ -387,6 +597,345 @@ app.post("/api/upload", verifyAdmin ,(req, res, next) => {
         message: "Bild erfolgreich hochgeladen.",
         imageUrl: `/uploads/${req.file.filename}`
     });
+});
+
+/* Bestellungen des angemeldeten Kunden abrufen */
+app.get("/api/customer/orders", async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+                message: "Bitte melden Sie sich an."
+            });
+        }
+
+        const token = authHeader.slice(7);
+
+        let decoded;
+
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET);
+        } catch {
+            return res.status(401).json({
+                message: "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an."
+            });
+        }
+
+        if (
+            decoded.role !== "customer" ||
+            !Number.isInteger(decoded.customerId)
+        ) {
+            return res.status(403).json({
+                message: "Zugriff verweigert."
+            });
+        }
+
+        const orders = await Order.findAll({
+            where: {
+                customerId: decoded.customerId
+            },
+            include: [
+                {
+                    model: OrderItem
+                }
+            ],
+            order: [["createdAt", "DESC"]]
+        });
+
+        return res.status(200).json(orders);
+
+    } catch (error) {
+        console.error(
+            "Fehler beim Laden der Kundenbestellungen:",
+            error
+        );
+
+        return res.status(500).json({
+            message: "Bestellungen konnten nicht geladen werden."
+        });
+    }
+});
+
+/* Neue Bestellung erstellen */
+app.post("/api/orders", async (req, res) => {
+    const {
+        customerName,
+        customerEmail,
+        street,
+        postalCode,
+        city,
+        items
+    } = req.body;
+
+    // Kundendaten überprüfen
+    if (
+        typeof customerName !== "string" || !customerName.trim() ||
+        typeof customerEmail !== "string" ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim()) ||
+        typeof street !== "string" || !street.trim() ||
+        typeof postalCode !== "string" || !postalCode.trim() ||
+        typeof city !== "string" || !city.trim()
+    ) {
+        return res.status(400).json({
+            message: "Bitte überprüfen Sie Ihre Kundendaten."
+        });
+    }
+
+    // Warenkorb überprüfen
+    if (
+        !Array.isArray(items) ||
+        items.length === 0 ||
+        !items.every(item =>
+            Number.isInteger(Number(item.productId)) &&
+            Number(item.productId) > 0 &&
+            Number.isInteger(Number(item.quantity)) &&
+            Number(item.quantity) > 0
+        )
+    ) {
+        return res.status(400).json({
+            message: "Der Warenkorb ist leer oder ungültig."
+        });
+    }
+
+    // Doppelte Produkte im Warenkorb zusammenfassen
+    const quantities = new Map();
+
+    for (const item of items) {
+        const id = Number(item.productId);
+        const quantity = Number(item.quantity);
+
+        quantities.set(
+            id,
+            (quantities.get(id) || 0) + quantity
+        );
+    }
+
+    const cartItems = Array.from(quantities, ([productId, quantity]) => ({
+        productId,
+        quantity
+    }));
+
+    // Optionales Kundenkonto prüfen
+    let customerId = null;
+
+    const authHeader = req.headers.authorization;
+
+    // Ohne Token ist eine Gastbestellung erlaubt
+    if (authHeader) {
+        const token = authHeader.startsWith("Bearer ")
+            ? authHeader.slice(7)
+            : null;
+
+        if (!token) {
+            return res.status(401).json({
+                message: "Ungültiger Anmeldetoken."
+            });
+        }
+
+        try {
+            const decoded = jwt.verify(
+                token,
+                process.env.JWT_SECRET
+            );
+
+            if (
+                decoded.role !== "customer" ||
+                !Number.isInteger(decoded.customerId)
+            ) {
+                return res.status(403).json({
+                    message: "Kein gültiges Kundenkonto."
+                });
+            }
+
+            const customer = await Customer.findByPk(
+                decoded.customerId
+            );
+
+            if (!customer) {
+                return res.status(401).json({
+                    message: "Kundenkonto nicht gefunden."
+                });
+            }
+
+            customerId = customer.id;
+
+        } catch (err) {
+            return res.status(401).json({
+                message: "Anmeldung abgelaufen. Bitte erneut anmelden."
+            });
+        }
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+        const productIds = cartItems.map(item => item.productId);
+
+        const products = await Product.findAll({
+            where: { id: productIds },
+            transaction
+        });
+
+        if (products.length !== productIds.length) {
+            await transaction.rollback();
+
+            return res.status(400).json({
+                message: "Mindestens ein Produkt wurde nicht gefunden."
+            });
+        }
+
+        const productMap = new Map(
+            products.map(product => [Number(product.id), product])
+        );
+
+        let totalCents = 0;
+
+        // Preise und Lagerbestand aus der Datenbank verwenden
+        for (const item of cartItems) {
+            const product = productMap.get(item.productId);
+
+            if (product.stock < item.quantity) {
+                await transaction.rollback();
+
+                return res.status(400).json({
+                    message:
+                        `Nicht genügend Lagerbestand für ${product.name}.`
+                });
+            }
+
+            const priceCents = Math.round(Number(product.price) * 100);
+
+            totalCents += priceCents * item.quantity;
+        }
+
+        // Bestellung speichern
+        const order = await Order.create({
+            customerId: customerId,
+            customerName: customerName.trim(),
+            customerEmail: customerEmail.trim(),
+            street: street.trim(),
+            postalCode: postalCode.trim(),
+            city: city.trim(),
+            totalAmount: (totalCents / 100).toFixed(2),
+            status: "Neu"
+        }, { transaction });
+
+        // Bestellpositionen speichern und Bestand reduzieren
+        for (const item of cartItems) {
+            const product = productMap.get(item.productId);
+
+            await OrderItem.create({
+                orderId: order.id,
+                productId: product.id,
+                productName: product.name,
+                quantity: item.quantity,
+                price: (Math.round(Number(product.price) * 100) / 100)
+                    .toFixed(2)
+            }, { transaction });
+
+            product.stock -= item.quantity;
+            await product.save({ transaction });
+        }
+
+        await transaction.commit();
+
+        return res.status(201).json({
+            message: "Bestellung erfolgreich gespeichert.",
+            order
+        });
+
+    } catch (err) {
+        if (!transaction.finished) {
+            await transaction.rollback();
+        }
+
+        console.error("Fehler beim Erstellen der Bestellung:", err);
+
+        return res.status(500).json({
+            message: "Bestellung konnte nicht gespeichert werden."
+        });
+    }
+});
+
+
+/* Alle Bestellungen für Admin abrufen */
+app.get("/api/orders", verifyAdmin, async (req, res) => {
+    try {
+        const orders = await Order.findAll({
+            include: [{
+                model: OrderItem
+            }],
+            order: [["createdAt", "DESC"]]
+        });
+
+        return res.json(orders);
+
+    } catch (err) {
+        console.error("Fehler beim Laden der Bestellungen:", err);
+
+        return res.status(500).json({
+            message: "Bestellungen konnten nicht geladen werden."
+        });
+    }
+});
+
+
+/* Bestellstatus aktualisieren – nur für Admins */
+app.patch("/api/orders/:id/status", verifyAdmin, async (req, res) => {
+    try {
+        const orderId = Number(req.params.id);
+        const { status } = req.body;
+
+        // Bestellnummer überprüfen
+        if (!Number.isInteger(orderId) || orderId <= 0) {
+            return res.status(400).json({
+                message: "Ungültige Bestellnummer."
+            });
+        }
+
+        // Erlaubte Bestellstatus festlegen
+        const allowedStatuses = [
+            "Neu",
+            "In Bearbeitung",
+            "Versendet",
+            "Abgeschlossen",
+            "Storniert"
+        ];
+
+        if (!allowedStatuses.includes(status)) {
+            return res.status(400).json({
+                message: "Ungültiger Bestellstatus."
+            });
+        }
+
+        // Bestellung suchen
+        const order = await Order.findByPk(orderId);
+
+        if (!order) {
+            return res.status(404).json({
+                message: "Bestellung wurde nicht gefunden."
+            });
+        }
+
+        // Bestellstatus aktualisieren
+        await order.update({ status });
+
+        return res.json({
+            message: "Bestellstatus erfolgreich aktualisiert.",
+            order
+        });
+
+    } catch (error) {
+        console.error(
+            "Fehler beim Aktualisieren des Bestellstatus:",
+            error
+        );
+
+        return res.status(500).json({
+            message: "Bestellstatus konnte nicht aktualisiert werden."
+        });
+    }
 });
 
 // Server starten und Datenbank vorbereiten
