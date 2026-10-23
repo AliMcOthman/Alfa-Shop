@@ -1,7 +1,7 @@
-
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
+// Definiert die Datenstruktur eines Produkts.
 type Product = {
     id: number;
     name: string;
@@ -12,22 +12,27 @@ type Product = {
     imageUrl: string | null;
 };
 
+// Erweitert ein Produkt um die ausgewählte Menge im Warenkorb.
 type CartItem = Product & {
     quantity: number;
 };
 
+// Definiert die mögliche Antwort des Backends nach einer Bestellung.
 type OrderResponse = {
     message?: string;
 };
 
+// Definiert die Daten des angemeldeten Kunden.
 type Customer = {
     id: number;
     name: string;
     email: string;
 };
 
+// Basis-URL des Backends.
 const API_URL = "http://127.0.0.1:3000";
 
+// Verfügbare Produktkategorien im Shop.
 const CATEGORIES = [
     "Computer",
     "Audio",
@@ -37,29 +42,44 @@ const CATEGORIES = [
 ];
 
 function Shop() {
+    // Speichert alle vom Backend geladenen Produkte.
     const [products, setProducts] = useState<Product[]>([]);
+
+    // Speichert die ausgewählten Produkte im Warenkorb.
     const [cart, setCart] = useState<CartItem[]>([]);
 
+    // Steuert, ob der Warenkorb angezeigt wird.
     const [showCart, setShowCart] = useState(false);
+
+    // Speichert die aktuell ausgewählte Kategorie.
     const [selectedCategory, setSelectedCategory] =
         useState("Alle Kategorien");
+
+    // Speichert den Suchbegriff für die Produktsuche.
     const [searchTerm, setSearchTerm] = useState("");
 
+    // Speichert Fehler beim Laden der Produkte.
     const [error, setError] = useState("");
+
+    // Zeigt an, ob die Produkte noch geladen werden.
     const [loading, setLoading] = useState(true);
 
-    // Gespeicherten Kunden beim Initialisieren laden
+    // Lädt den gespeicherten Kunden beim Initialisieren der Komponente.
     const [customer, setCustomer] = useState<Customer | null>(() => {
+        // Liest die Kundendaten und das Token aus dem Local Storage.
         const savedCustomer = localStorage.getItem("customer");
         const customerToken = localStorage.getItem("customerToken");
 
+        // Ohne gespeicherte Kundendaten oder Token ist kein Kunde angemeldet.
         if (!savedCustomer || !customerToken) {
             return null;
         }
 
         try {
+            // Wandelt die gespeicherten JSON-Daten in ein Objekt um.
             const parsedCustomer: unknown = JSON.parse(savedCustomer);
 
+            // Prüft die Struktur und die Datentypen der Kundendaten.
             if (
                 typeof parsedCustomer === "object" &&
                 parsedCustomer !== null &&
@@ -70,6 +90,7 @@ function Shop() {
                 typeof parsedCustomer.name === "string" &&
                 typeof parsedCustomer.email === "string"
             ) {
+                // Gibt nur die benötigten Kundendaten zurück.
                 return {
                     id: parsedCustomer.id,
                     name: parsedCustomer.name,
@@ -77,31 +98,40 @@ function Shop() {
                 };
             }
         } catch {
-            // Ungültige Kundendaten werden entfernt.
+            // Ungültige Kundendaten werden anschließend entfernt.
         }
 
+        // Entfernt ungültige oder unvollständige Anmeldedaten.
         localStorage.removeItem("customer");
         localStorage.removeItem("customerToken");
 
         return null;
     });
 
-    // Zustand für das Absenden einer Bestellung
+    // Steuert das Absenden einer Bestellung.
     const [orderSubmitting, setOrderSubmitting] = useState(false);
+
+    // Speichert die Erfolgsmeldung einer Bestellung.
     const [orderMessage, setOrderMessage] = useState("");
+
+    // Speichert Fehlermeldungen bei einer Bestellung.
     const [orderError, setOrderError] = useState("");
 
+    // Referenz auf den Warenkorb für das automatische Scrollen.
     const cartRef = useRef<HTMLElement | null>(null);
 
-    // Produkte und Backend-Status laden
+    // Lädt beim Öffnen des Shops den Backend-Status und die Produkte.
     useEffect(() => {
+        // Verhindert Zustandsänderungen nach dem Verlassen der Komponente.
         let isActive = true;
 
         async function loadData() {
             try {
+                // Aktiviert die Ladeanzeige und löscht alte Fehler.
                 setLoading(true);
                 setError("");
 
+                // Prüft, ob das Backend erreichbar ist.
                 const healthResponse = await fetch(
                     `${API_URL}/api/health`
                 );
@@ -110,6 +140,7 @@ function Shop() {
                     throw new Error("Backend nicht erreichbar.");
                 }
 
+                // Fordert die Produktliste vom Backend an.
                 const productsResponse = await fetch(
                     `${API_URL}/api/products`
                 );
@@ -120,15 +151,19 @@ function Shop() {
                     );
                 }
 
+                // Wandelt die JSON-Antwort in eine Produktliste um.
                 const productsData: Product[] =
                     await productsResponse.json();
 
+                // Aktualisiert den Zustand nur bei aktiver Komponente.
                 if (isActive) {
                     setProducts(productsData);
                 }
             } catch (err) {
+                // Gibt technische Details in der Browser-Konsole aus.
                 console.error(err);
 
+                // Zeigt dem Benutzer eine verständliche Fehlermeldung.
                 if (isActive) {
                     setError(
                         err instanceof Error
@@ -137,36 +172,43 @@ function Shop() {
                     );
                 }
             } finally {
+                // Beendet die Ladeanzeige nur bei aktiver Komponente.
                 if (isActive) {
                     setLoading(false);
                 }
             }
         }
 
+        // Startet das Laden der Daten.
         void loadData();
 
+        // Wird beim Verlassen der Komponente ausgeführt.
         return () => {
             isActive = false;
         };
     }, []);
 
-    // Produkte nach Name und Kategorie filtern
+    // Filtert Produkte nach Kategorie und Suchbegriff.
     const filteredProducts = products.filter((product) => {
+        // Prüft, ob das Produkt zur ausgewählten Kategorie gehört.
         const matchesCategory =
             selectedCategory === "Alle Kategorien" ||
             product.category === selectedCategory;
 
+        // Vergleicht den Suchbegriff mit dem Produktnamen.
         const matchesSearch = product.name
             .toLowerCase()
             .includes(searchTerm.trim().toLowerCase());
 
+        // Ein Produkt muss beide Bedingungen erfüllen.
         return matchesCategory && matchesSearch;
     });
 
-    // Zum Warenkorb springen
+    // Öffnet den Warenkorb und scrollt zu ihm.
     function openCart() {
         setShowCart(true);
 
+        // Wartet kurz, bis der Warenkorb im DOM angezeigt wird.
         setTimeout(() => {
             cartRef.current?.scrollIntoView({
                 behavior: "smooth",
@@ -175,26 +217,32 @@ function Shop() {
         }, 100);
     }
 
-    // Produkt zum Warenkorb hinzufügen
+    // Fügt ein Produkt zum Warenkorb hinzu.
     function addToCart(product: Product) {
+        // Entfernt vorherige Bestellmeldungen.
         setOrderMessage("");
         setOrderError("");
 
+        // Produkte ohne Lagerbestand können nicht hinzugefügt werden.
         if (product.stock <= 0) {
             setOrderError("Dieses Produkt ist nicht auf Lager.");
             return;
         }
 
+        // Aktualisiert den Warenkorb anhand des bisherigen Zustands.
         setCart((currentCart) => {
+            // Prüft, ob das Produkt bereits im Warenkorb vorhanden ist.
             const existingItem = currentCart.find(
                 (item) => item.id === product.id
             );
 
             if (existingItem) {
+                // Verhindert, dass mehr als der verfügbare Bestand ausgewählt wird.
                 if (existingItem.quantity >= product.stock) {
                     return currentCart;
                 }
 
+                // Erhöht die Menge des bereits vorhandenen Produkts.
                 return currentCart.map((item) =>
                     item.id === product.id
                         ? {
@@ -206,6 +254,7 @@ function Shop() {
                 );
             }
 
+            // Fügt ein neues Produkt mit der Menge eins hinzu.
             return [
                 ...currentCart,
                 {
@@ -216,21 +265,23 @@ function Shop() {
         });
     }
 
-    // Produkt aus dem Warenkorb entfernen
+    // Entfernt ein Produkt vollständig aus dem Warenkorb.
     function removeFromCart(productId: number) {
         setOrderMessage("");
         setOrderError("");
 
+        // Behält alle Produkte außer dem ausgewählten Produkt.
         setCart((currentCart) =>
             currentCart.filter((item) => item.id !== productId)
         );
     }
 
-    // Produktmenge ändern
+    // Ändert die Menge eines Produkts im Warenkorb.
     function changeQuantity(productId: number, quantity: number) {
         setOrderMessage("");
         setOrderError("");
 
+        // Begrenzt die Menge auf mindestens eins und höchstens den Lagerbestand.
         setCart((currentCart) =>
             currentCart.map((item) =>
                 item.id === productId
@@ -246,21 +297,26 @@ function Shop() {
         );
     }
 
-    // Bestellung an das Backend senden
+    // Sendet die Bestellung an das Backend.
     async function submitOrder(event: FormEvent<HTMLFormElement>) {
+        // Verhindert das Neuladen der Seite.
         event.preventDefault();
 
+        // Setzt vorherige Bestellmeldungen zurück.
         setOrderMessage("");
         setOrderError("");
 
+        // Eine Bestellung ohne Produkte ist nicht erlaubt.
         if (cart.length === 0) {
             setOrderError("Dein Warenkorb ist leer.");
             return;
         }
 
+        // Liest die eingegebenen Lieferdaten aus dem Formular.
         const form = event.currentTarget;
         const formData = new FormData(form);
 
+        // Erstellt das Datenobjekt für die Bestellung.
         const orderData = {
             customerName: String(
                 formData.get("customerName") ?? ""
@@ -282,31 +338,41 @@ function Shop() {
                 formData.get("city") ?? ""
             ).trim(),
 
+            // Überträgt Produkt-IDs und Mengen an das Backend.
             items: cart.map((item) => ({
                 productId: item.id,
                 quantity: item.quantity,
             })),
         };
 
+        // Aktiviert den Ladezustand für die Bestellung.
         setOrderSubmitting(true);
 
         try {
+            // Liest das optionale Kunden-Token aus dem Local Storage.
             const customerToken = localStorage.getItem("customerToken");
 
+            // Sendet die Bestellung an die Bestell-API.
             const response = await fetch(`${API_URL}/api/orders`, {
                 method: "POST",
                 headers: {
+                    // Kennzeichnet den Request als JSON.
                     "Content-Type": "application/json",
+
+                    // Sendet das Token nur, wenn ein Kunde angemeldet ist.
                     ...(customerToken
                         ? { Authorization: `Bearer ${customerToken}` }
                         : {}),
                 },
+                // Wandelt die Bestelldaten in JSON um.
                 body: JSON.stringify(orderData),
             });
 
+            // Liest die Antwort des Backends.
             const responseData: OrderResponse =
                 await response.json();
 
+            // Behandelt Fehler beim Speichern der Bestellung.
             if (!response.ok) {
                 throw new Error(
                     responseData.message ||
@@ -314,20 +380,22 @@ function Shop() {
                 );
             }
 
-            // Bestellte Mengen für die Aktualisierung merken
+            // Merkt sich die bestellten Mengen für die Bestandsaktualisierung.
             const orderedItems = [...cart];
 
-            // Lagerbestand im Shop aktualisieren
+            // Aktualisiert die angezeigten Lagerbestände im Shop.
             setProducts((currentProducts) =>
                 currentProducts.map((product) => {
                     const orderedItem = orderedItems.find(
                         (item) => item.id === product.id
                     );
 
+                    // Nicht bestellte Produkte bleiben unverändert.
                     if (!orderedItem) {
                         return product;
                     }
 
+                    // Zieht die bestellte Menge vom angezeigten Bestand ab.
                     return {
                         ...product,
                         stock: Math.max(
@@ -338,51 +406,59 @@ function Shop() {
                 })
             );
 
-            // Lagerbestand im Warenkorb ebenfalls aktualisieren
+            // Leert den Warenkorb nach erfolgreicher Bestellung.
             setCart([]);
 
+            // Zeigt die Erfolgsmeldung des Backends an.
             setOrderMessage(
                 responseData.message ||
                 "Bestellung erfolgreich gespeichert."
             );
 
+            // Leert die Eingabefelder des Lieferformulars.
             form.reset();
         } catch (err) {
+            // Gibt technische Details in der Browser-Konsole aus.
             console.error(
                 "Fehler beim Absenden der Bestellung:",
                 err
             );
 
+            // Zeigt eine verständliche Fehlermeldung an.
             setOrderError(
                 err instanceof Error
                     ? err.message
                     : "Ein Fehler ist aufgetreten. Bitte versuche es erneut."
             );
         } finally {
+            // Beendet den Ladezustand nach dem Bestellversuch.
             setOrderSubmitting(false);
         }
     }
 
-    // Kunden abmelden
+    // Meldet den Kunden ab.
     function logoutCustomer() {
+        // Entfernt die lokal gespeicherten Anmeldedaten.
         localStorage.removeItem("customerToken");
         localStorage.removeItem("customer");
+
+        // Aktualisiert die Benutzeroberfläche.
         setCustomer(null);
     }
 
-    // Gesamtanzahl der Produkte im Warenkorb berechnen
+    // Berechnet die Gesamtmenge aller Produkte im Warenkorb.
     const cartCount = cart.reduce(
         (total, item) => total + item.quantity,
         0
     );
 
-    // Gesamtpreis berechnen
+    // Berechnet den Gesamtpreis aller Warenkorbpositionen.
     const cartTotal = cart.reduce(
         (total, item) => total + item.price * item.quantity,
         0
     );
 
-    // Preis im deutschen Format anzeigen
+    // Formatiert Preise im deutschen Euro-Format.
     function formatPrice(price: number) {
         return price.toLocaleString("de-DE", {
             style: "currency",
@@ -392,9 +468,10 @@ function Shop() {
 
     return (
         <>
-            {/* Navigation */}
+            {/* Navigationsleiste des Shops. */}
             <nav className="navbar navbar-expand-lg shadow-sm shop-header">
                 <div className="container">
+                    {/* Logo führt zurück zur Shop-Seite. */}
                     <Link
                         className="navbar-brand d-flex align-items-center"
                         to="/"
@@ -411,7 +488,7 @@ function Shop() {
                     </Link>
 
                     <div className="d-flex align-items-center gap-2 flex-wrap">
-                        {/* Kundenbereich */}
+                        {/* Zeigt die Navigation für angemeldete Kunden. */}
                         {customer ? (
                             <>
                                 <span className="text-white me-2">
@@ -436,6 +513,7 @@ function Shop() {
                                 </button>
                             </>
                         ) : (
+                            // Zeigt Login und Registrierung für Gäste.
                             <>
                                 <Link
                                     to="/customer-login"
@@ -453,7 +531,7 @@ function Shop() {
                             </>
                         )}
 
-                        {/* Admin-Login */}
+                        {/* Öffnet die Anmeldung für Administratoren. */}
                         <Link
                             to="/login"
                             className="btn btn-outline-primary"
@@ -462,7 +540,7 @@ function Shop() {
                             Admin-Login
                         </Link>
 
-                        {/* Warenkorb */}
+                        {/* Zeigt den Warenkorb und die Produktanzahl an. */}
                         <button
                             type="button"
                             className="btn btn-light"
@@ -478,7 +556,7 @@ function Shop() {
             </nav>
 
             <main className="container py-5">
-                {/* Begrüßung */}
+                {/* Begrüßungsbereich des Shops. */}
                 <section className="text-center mb-5">
                     <h1 className="display-5 fw-bold">
                         Willkommen bei alfaShop!
@@ -489,26 +567,27 @@ function Shop() {
                     </p>
                 </section>
 
-                {/* Fehlermeldung */}
+                {/* Zeigt Fehler beim Laden der Produkte an. */}
                 {error && (
                     <div className="alert alert-danger" role="alert">
                         {error}
                     </div>
                 )}
 
-                {/* Produktübersicht */}
+                {/* Bereich mit der Produktübersicht. */}
                 <section>
                     <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
                         <h2 className="fw-bold mb-0">
                             Unsere Produkte
                         </h2>
 
+                        {/* Zeigt die Anzahl der gefilterten Produkte an. */}
                         <span className="badge text-bg-primary fs-6">
                             {filteredProducts.length} Produkte
                         </span>
                     </div>
 
-                    {/* Suchleiste und Kategorie */}
+                    {/* Suchfeld und Kategorieauswahl. */}
                     <div className="row g-3 align-items-end mb-4">
                         <div className="col-12 col-md-7 col-lg-8">
                             <label
@@ -529,11 +608,13 @@ function Shop() {
                                     className="form-control"
                                     placeholder="Was suchst du heute?"
                                     value={searchTerm}
+                                    // Aktualisiert den Suchbegriff bei jeder Eingabe.
                                     onChange={(event) =>
                                         setSearchTerm(event.target.value)
                                     }
                                 />
 
+                                {/* Bietet eine Schaltfläche zum Löschen der Suche. */}
                                 {searchTerm && (
                                     <button
                                         type="button"
@@ -558,6 +639,7 @@ function Shop() {
                                 id="categoryFilter"
                                 className="form-select form-select-lg"
                                 value={selectedCategory}
+                                // Aktualisiert die ausgewählte Kategorie.
                                 onChange={(event) =>
                                     setSelectedCategory(event.target.value)
                                 }
@@ -566,6 +648,7 @@ function Shop() {
                                     Alle Kategorien
                                 </option>
 
+                                {/* Erstellt für jede Kategorie eine Option. */}
                                 {CATEGORIES.map((category) => (
                                     <option
                                         key={category}
@@ -578,7 +661,7 @@ function Shop() {
                         </div>
                     </div>
 
-                    {/* Ladeanzeige */}
+                    {/* Zeigt eine Ladeanimation während des Datenabrufs. */}
                     {loading && (
                         <div className="text-center py-5">
                             <div
@@ -592,14 +675,14 @@ function Shop() {
                         </div>
                     )}
 
-                    {/* Keine Produkte vorhanden */}
+                    {/* Meldung, wenn keine Produkte vorhanden sind. */}
                     {!loading && !error && products.length === 0 && (
                         <div className="alert alert-info">
                             Zurzeit sind keine Produkte verfügbar.
                         </div>
                     )}
 
-                    {/* Keine Suchergebnisse */}
+                    {/* Meldung, wenn die Suche keine Treffer liefert. */}
                     {!loading &&
                         !error &&
                         products.length > 0 &&
@@ -610,12 +693,13 @@ function Shop() {
                             </div>
                         )}
 
-                    {/* Produktkarten */}
+                    {/* Zeigt die gefilterten Produkte als Karten an. */}
                     <div className="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-4">
                         {!loading &&
                             filteredProducts.map((product) => (
                                 <div className="col" key={product.id}>
                                     <article className="card h-100 border-0 shadow-sm">
+                                        {/* Zeigt das Produktbild oder einen Platzhalter. */}
                                         {product.imageUrl ? (
                                             <img
                                                 src={`${API_URL}${product.imageUrl}`}
@@ -638,6 +722,7 @@ function Shop() {
                                         )}
 
                                         <div className="card-body d-flex flex-column">
+                                            {/* Zeigt die Kategorie des Produkts an. */}
                                             {product.category && (
                                                 <span className="badge text-bg-light border align-self-start mb-2">
                                                     {product.category}
@@ -648,16 +733,19 @@ function Shop() {
                                                 {product.name}
                                             </h5>
 
+                                            {/* Zeigt die Beschreibung oder einen Ersatztext an. */}
                                             <p className="card-text text-secondary">
                                                 {product.description ||
                                                     "Keine Beschreibung verfügbar."}
                                             </p>
 
                                             <div className="mt-auto">
+                                                {/* Zeigt den Produktpreis an. */}
                                                 <p className="fs-4 fw-bold text-primary mb-2">
                                                     {formatPrice(product.price)}
                                                 </p>
 
+                                                {/* Zeigt den aktuellen Lagerbestand an. */}
                                                 <p className="small mb-0">
                                                     {product.stock > 0 ? (
                                                         <span className="text-success">
@@ -671,6 +759,7 @@ function Shop() {
                                                     )}
                                                 </p>
 
+                                                {/* Deaktiviert den Kauf bei leerem Lager. */}
                                                 <button
                                                     type="button"
                                                     className="btn btn-primary w-100 mt-3"
@@ -691,7 +780,7 @@ function Shop() {
                     </div>
                 </section>
 
-                {/* Warenkorb */}
+                {/* Zeigt den Warenkorb nur nach dem Öffnen an. */}
                 {showCart && (
                     <section
                         ref={cartRef}
@@ -703,6 +792,7 @@ function Shop() {
                                 Mein Warenkorb
                             </h2>
 
+                            {/* Schließt den Warenkorb. */}
                             <button
                                 type="button"
                                 className="btn btn-outline-secondary btn-sm"
@@ -713,7 +803,7 @@ function Shop() {
                         </div>
 
                         <div className="card-body">
-                            {/* Erfolgsmeldung */}
+                            {/* Zeigt die Erfolgsmeldung der Bestellung an. */}
                             {orderMessage && (
                                 <div
                                     className="alert alert-success"
@@ -723,7 +813,7 @@ function Shop() {
                                 </div>
                             )}
 
-                            {/* Fehlermeldung */}
+                            {/* Zeigt einen Fehler bei der Bestellung an. */}
                             {orderError && (
                                 <div
                                     className="alert alert-danger"
@@ -733,13 +823,14 @@ function Shop() {
                                 </div>
                             )}
 
+                            {/* Zeigt einen Hinweis bei leerem Warenkorb. */}
                             {cart.length === 0 ? (
                                 <p className="text-secondary mb-0">
                                     Dein Warenkorb ist leer.
                                 </p>
                             ) : (
                                 <>
-                                    {/* Produkte im Warenkorb */}
+                                    {/* Durchläuft alle Warenkorbpositionen. */}
                                     {cart.map((item) => (
                                         <div
                                             key={item.id}
@@ -755,6 +846,7 @@ function Shop() {
                                                 </span>
                                             </div>
 
+                                            {/* Ermöglicht die Anpassung der Produktmenge. */}
                                             <div className="d-flex align-items-center gap-2">
                                                 <button
                                                     type="button"
@@ -788,6 +880,7 @@ function Shop() {
                                                     +
                                                 </button>
 
+                                                {/* Entfernt das Produkt aus dem Warenkorb. */}
                                                 <button
                                                     type="button"
                                                     className="btn btn-outline-danger btn-sm"
@@ -799,6 +892,7 @@ function Shop() {
                                                 </button>
                                             </div>
 
+                                            {/* Zeigt den Gesamtpreis dieser Position an. */}
                                             <strong>
                                                 {formatPrice(
                                                     item.price * item.quantity
@@ -807,7 +901,7 @@ function Shop() {
                                         </div>
                                     ))}
 
-                                    {/* Gesamtbetrag */}
+                                    {/* Zeigt die Gesamtmenge und den Gesamtpreis an. */}
                                     <div className="text-end mt-4">
                                         <p className="text-secondary mb-1">
                                             Gesamtanzahl: {cartCount}
@@ -820,7 +914,7 @@ function Shop() {
 
                                     <hr className="my-4" />
 
-                                    {/* Lieferdaten */}
+                                    {/* Formular für die Lieferdaten. */}
                                     <h3 className="h5 fw-bold mb-3">
                                         Lieferdaten
                                     </h3>
@@ -841,6 +935,7 @@ function Shop() {
                                                     type="text"
                                                     className="form-control"
                                                     autoComplete="name"
+                                                    // Übernimmt den Namen des angemeldeten Kunden.
                                                     defaultValue={customer?.name ?? ""}
                                                     required
                                                 />
@@ -860,6 +955,7 @@ function Shop() {
                                                     type="email"
                                                     className="form-control"
                                                     autoComplete="email"
+                                                    // Übernimmt die E-Mail des angemeldeten Kunden.
                                                     defaultValue={customer?.email ?? ""}
                                                     required
                                                 />
@@ -920,6 +1016,7 @@ function Shop() {
                                             </div>
                                         </div>
 
+                                        {/* Sendet die Bestellung nach Eingabe der Lieferdaten ab. */}
                                         <button
                                             type="submit"
                                             className="btn btn-success btn-lg w-100 mt-4"
@@ -940,7 +1037,7 @@ function Shop() {
                 )}
             </main>
 
-            {/* Fußzeile */}
+            {/* Fußzeile mit dem aktuellen Jahr. */}
             <footer className="bg-dark text-white text-center py-4 mt-5">
                 <div className="container">
                     <p className="mb-0">

@@ -1,4 +1,3 @@
-
 import { DataTypes } from "sequelize";
 import sequelize from "../db.js";
 
@@ -6,51 +5,53 @@ import sequelize from "../db.js";
 const Order = sequelize.define("Order", {
     // Kundenname
     customerName: {
-        type: DataTypes.STRING,
-        allowNull: false
+        type: DataTypes.STRING, // Text speichern
+        allowNull: false // Kundenname ist erforderlich
     },
 
-    // E-Mail-Adresse
+    // E-Mail-Adresse des Kunden
     customerEmail: {
-        type: DataTypes.STRING,
-        allowNull: false
+        type: DataTypes.STRING, // E-Mail als Text speichern
+        allowNull: false // E-Mail-Adresse ist erforderlich
     },
 
-    // Straße und Hausnummer
+    // Straße und Hausnummer der Lieferadresse
     street: {
-        type: DataTypes.STRING,
-        allowNull: false
+        type: DataTypes.STRING, // Adresse als Text speichern
+        allowNull: false // Straße und Hausnummer sind erforderlich
     },
 
-    // Postleitzahl
+    // Postleitzahl der Lieferadresse
     postalCode: {
-        type: DataTypes.STRING,
-        allowNull: false
+        type: DataTypes.STRING, // Als Text speichern, damit führende Nullen erhalten bleiben
+        allowNull: false // Postleitzahl ist erforderlich
     },
 
-    // Stadt
+    // Stadt der Lieferadresse
     city: {
-        type: DataTypes.STRING,
-        allowNull: false
+        type: DataTypes.STRING, // Stadt als Text speichern
+        allowNull: false // Stadt ist erforderlich
     },
 
     // Gesamtbetrag der Bestellung
     totalAmount: {
-        type: DataTypes.DECIMAL(10, 2),
-        allowNull: false
+        type: DataTypes.DECIMAL(10, 2), // Betrag mit zwei Nachkommastellen speichern
+        allowNull: false // Gesamtbetrag ist erforderlich
     },
 
-    // Bestellstatus
+    // Aktueller Status der Bestellung
     status: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        defaultValue: "Neu"
+        type: DataTypes.STRING, // Status als Text speichern
+        allowNull: false, // Status ist erforderlich
+        defaultValue: "Neu" // Neue Bestellungen erhalten standardmäßig den Status "Neu"
     },
+
     // Verknüpfung mit dem Kundenkonto (optional)
     customerId: {
-        type: DataTypes.INTEGER,
-        allowNull: true
+        type: DataTypes.INTEGER, // ID des Kunden speichern
+        allowNull: true // Gastbestellungen sind ebenfalls möglich
     },
 });
 
+// Modell exportieren, damit es in anderen Dateien verwendet werden kann
 export default Order;

@@ -8,13 +8,14 @@ import Admin from "./models/Admin.js";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
-import fs from "fs"
+import fs from "fs";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 
-
+// Umgebungsvariablen aus der .env-Datei laden
 dotenv.config();
+
 // Dateipfad und Upload-Ordner bestimmen
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,28 +28,33 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Speicherort und Dateinamen für Bilder festlegen
 const storage = multer.diskStorage({
+    // Zielordner für hochgeladene Bilder festlegen
     destination: (req, file, cb) => {
         cb(null, uploadsDir);
     },
 
+    // Eindeutigen Dateinamen erzeugen
     filename: (req, file, cb) => {
         const uniqueName =
             Date.now() + "-" + Math.round(Math.random() * 1e9);
 
+        // Dateiendung aus dem ursprünglichen Dateinamen übernehmen
         const extension = path.extname(file.originalname).toLowerCase();
 
         cb(null, uniqueName + extension);
     }
 });
 
-// Upload-Einstellungen
+// Upload-Einstellungen festlegen
 const upload = multer({
     storage,
 
+    // Maximale Dateigröße auf 5 MB begrenzen
     limits: {
         fileSize: 5 * 1024 * 1024
     },
 
+    // Nur Dateien akzeptieren, die als Bilder erkannt werden
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith("image/")) {
             cb(null, true);
@@ -63,55 +69,62 @@ const app = express();
 const IP = "127.0.0.1";
 const PORT = 3000;
 
-// Middleware
+// CORS konfigurieren: Anfragen vom lokalen Frontend erlauben
 app.use(cors({
     origin: "http://localhost:5173"
 }));
 
+// JSON-Daten aus Request-Bodys lesen
 app.use(express.json());
-
 
 /**
  * Middleware zur Überprüfung des Admin-Tokens
  */
 function verifyAdmin(req, res, next) {
+    // Authorization-Header aus der Anfrage lesen
     const authHeader = req.headers.authorization;
 
+    // Prüfen, ob ein Bearer-Token vorhanden ist
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return res.status(401).json({
             message: "Bitte melden Sie sich als Admin an.",
         });
     }
 
+    // Token aus dem Header extrahieren
     const token = authHeader.split(" ")[1];
 
     try {
+        // Token mit dem geheimen Schlüssel überprüfen
         const decoded = jwt.verify(
             token,
             process.env.JWT_SECRET
         );
 
+        // Prüfen, ob das Token zu einem Administrator gehört
         if (decoded.role !== "admin") {
             return res.status(403).json({
                 message: "Keine Berechtigung.",
             });
         }
 
+        // Dekodierte Admin-Daten für die nächste Middleware speichern
         req.admin = decoded;
 
+        // Anfrage an die nächste Middleware oder Route weitergeben
         next();
     } catch (error) {
+        // Ungültige oder abgelaufene Tokens ablehnen
         return res.status(401).json({
             message: "Token ist ungültig oder abgelaufen.",
         });
     }
 }
 
-
 // Hochgeladene Bilder im Browser verfügbar machen
 app.use("/uploads", express.static(uploadsDir));
 
-// Startseite
+// Startseite des Backends
 app.get("/", (req, res) => {
     res.send("Willkommen bei unserem alfaShop");
 });
@@ -119,6 +132,7 @@ app.get("/", (req, res) => {
 // Datenbankverbindung prüfen
 app.get("/api/health", async (req, res) => {
     try {
+        // Verbindung zur Datenbank testen
         await sequelize.authenticate();
 
         res.json({
@@ -138,6 +152,7 @@ app.get("/api/health", async (req, res) => {
 // Alle Produkte abrufen
 app.get("/api/products", async (req, res) => {
     try {
+        // Alle Produkte aus der Datenbank lesen
         const products = await Product.findAll();
 
         res.json(products);
@@ -150,10 +165,10 @@ app.get("/api/products", async (req, res) => {
     }
 });
 
-
-// Neues Produkt erstellen
+// Neues Produkt erstellen – nur für Admins
 app.post("/api/products", verifyAdmin, async (req, res) => {
     try {
+        // Produktdaten aus dem Request-Body lesen
         const {
             name,
             description,
@@ -163,7 +178,7 @@ app.post("/api/products", verifyAdmin, async (req, res) => {
             imageUrl
         } = req.body;
 
-        // Eingaben überprüfen
+        // Pflichtfelder und Zahlenwerte überprüfen
         if (
             typeof name !== "string" ||
             name.trim() === "" ||
@@ -181,7 +196,7 @@ app.post("/api/products", verifyAdmin, async (req, res) => {
             });
         }
 
-        // Produkt in der Datenbank speichern
+        // Neues Produkt in der Datenbank speichern
         const product = await Product.create({
             name: name.trim(),
             description: description || null,
@@ -195,7 +210,6 @@ app.post("/api/products", verifyAdmin, async (req, res) => {
             message: "Produkt erfolgreich hinzugefügt.",
             product
         });
-
     } catch (err) {
         console.error("Fehler beim Erstellen des Produkts:", err);
 
@@ -205,17 +219,20 @@ app.post("/api/products", verifyAdmin, async (req, res) => {
     }
 });
 
-
+// Admin-Anmeldung
 app.post("/api/admin/login", async (req, res) => {
     try {
+        // Benutzername und Passwort auslesen
         const { username, password } = req.body;
 
+        // Prüfen, ob beide Felder ausgefüllt sind
         if (!username || !password) {
             return res.status(400).json({
                 message: "Bitte Benutzername und Passwort eingeben.",
             });
         }
 
+        // Prüfen, ob der geheime JWT-Schlüssel konfiguriert ist
         if (!process.env.JWT_SECRET) {
             console.error("JWT_SECRET fehlt in der .env-Datei.");
 
@@ -224,16 +241,19 @@ app.post("/api/admin/login", async (req, res) => {
             });
         }
 
+        // Administrator anhand des Benutzernamens suchen
         const admin = await Admin.findOne({
             where: { username },
         });
 
+        // Allgemeine Fehlermeldung bei falschen Zugangsdaten
         if (!admin) {
             return res.status(401).json({
                 message: "Benutzername oder Passwort ist falsch.",
             });
         }
 
+        // Eingegebenes Passwort mit dem gespeicherten Hash vergleichen
         const passwordIsValid = await bcrypt.compare(
             password,
             admin.password
@@ -245,6 +265,7 @@ app.post("/api/admin/login", async (req, res) => {
             });
         }
 
+        // JWT für den angemeldeten Administrator erstellen
         const token = jwt.sign(
             {
                 id: admin.id,
@@ -271,13 +292,13 @@ app.post("/api/admin/login", async (req, res) => {
     }
 });
 
-
-
+// Kundenkonto registrieren
 app.post("/api/customers/register", async (req, res) => {
     try {
+        // Registrierungsdaten aus dem Request-Body lesen
         const { name, email, password } = req.body;
 
-        // Eingaben prüfen
+        // Pflichtfelder überprüfen
         if (
             typeof name !== "string" ||
             typeof email !== "string" ||
@@ -291,16 +312,17 @@ app.post("/api/customers/register", async (req, res) => {
             });
         }
 
+        // E-Mail vereinheitlichen
         const normalizedEmail = email.trim().toLowerCase();
 
-        // E-Mail-Format prüfen
+        // E-Mail-Format überprüfen
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
             return res.status(400).json({
                 message: "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
             });
         }
 
-        // Passwortlänge prüfen
+        // Mindestlänge des Passworts überprüfen
         if (password.length < 8) {
             return res.status(400).json({
                 message: "Das Passwort muss mindestens 8 Zeichen lang sein.",
@@ -328,6 +350,7 @@ app.post("/api/customers/register", async (req, res) => {
             passwordHash,
         });
 
+        // Nur öffentliche Kundendaten zurückgeben
         return res.status(201).json({
             message: "Ihr Kundenkonto wurde erfolgreich erstellt.",
             customer: {
@@ -346,6 +369,7 @@ app.post("/api/customers/register", async (req, res) => {
             });
         }
 
+        // Validierungsfehler verständlich zurückgeben
         if (error.name === "SequelizeValidationError") {
             return res.status(400).json({
                 message: "Bitte überprüfen Sie Ihre Eingaben.",
@@ -358,10 +382,13 @@ app.post("/api/customers/register", async (req, res) => {
     }
 });
 
+// Kundenanmeldung
 app.post("/api/customers/login", async (req, res) => {
     try {
+        // E-Mail und Passwort auslesen
         const { email, password } = req.body;
 
+        // Pflichtfelder überprüfen
         if (
             typeof email !== "string" ||
             typeof password !== "string" ||
@@ -373,9 +400,10 @@ app.post("/api/customers/login", async (req, res) => {
             });
         }
 
+        // E-Mail vereinheitlichen
         const normalizedEmail = email.trim().toLowerCase();
 
-        // Kundenkonto suchen
+        // Kundenkonto anhand der E-Mail suchen
         const customer = await Customer.findOne({
             where: { email: normalizedEmail },
         });
@@ -386,7 +414,7 @@ app.post("/api/customers/login", async (req, res) => {
             });
         }
 
-        // Passwort überprüfen
+        // Eingegebenes Passwort mit dem gespeicherten Hash vergleichen
         const passwordIsValid = await bcrypt.compare(
             password,
             customer.passwordHash
@@ -398,7 +426,7 @@ app.post("/api/customers/login", async (req, res) => {
             });
         }
 
-        // Kundentoken erstellen
+        // JWT für den angemeldeten Kunden erstellen
         const token = jwt.sign(
             {
                 customerId: customer.id,
@@ -410,6 +438,7 @@ app.post("/api/customers/login", async (req, res) => {
             }
         );
 
+        // Token und öffentliche Kundendaten zurückgeben
         return res.status(200).json({
             message: "Anmeldung erfolgreich.",
             token,
@@ -428,9 +457,10 @@ app.post("/api/customers/login", async (req, res) => {
     }
 });
 
-/* Produkt bearbeiten */
+// Produkt bearbeiten – nur für Admins
 app.put("/api/products/:id", verifyAdmin, async (req, res) => {
     try {
+        // Produkt-ID und neue Daten auslesen
         const { id } = req.params;
         const {
             name,
@@ -441,6 +471,7 @@ app.put("/api/products/:id", verifyAdmin, async (req, res) => {
             imageUrl,
         } = req.body;
 
+        // Produkt anhand der ID suchen
         const product = await Product.findByPk(id);
 
         if (!product) {
@@ -449,7 +480,7 @@ app.put("/api/products/:id", verifyAdmin, async (req, res) => {
             });
         }
 
-        // Eingaben überprüfen
+        // Pflichtfelder und Zahlenwerte überprüfen
         if (
             typeof name !== "string" ||
             name.trim() === "" ||
@@ -489,11 +520,14 @@ app.put("/api/products/:id", verifyAdmin, async (req, res) => {
         });
     }
 });
-/* Produkt löschen */
-app.delete("/api/products/:id",verifyAdmin , async (req, res) => {
+
+// Produkt löschen – nur für Admins
+app.delete("/api/products/:id", verifyAdmin, async (req, res) => {
     try {
+        // Produkt-ID aus der URL lesen
         const { id } = req.params;
 
+        // Produkt suchen
         const product = await Product.findByPk(id);
 
         if (!product) {
@@ -502,6 +536,7 @@ app.delete("/api/products/:id",verifyAdmin , async (req, res) => {
             });
         }
 
+        // Produkt aus der Datenbank löschen
         await product.destroy();
 
         res.json({
@@ -518,11 +553,14 @@ app.delete("/api/products/:id",verifyAdmin , async (req, res) => {
 
 // Bestellung löschen – nur für Admins
 app.delete("/api/orders/:id", verifyAdmin, async (req, res) => {
+    // Datenbanktransaktion starten
     const transaction = await sequelize.transaction();
 
     try {
+        // Bestellnummer aus der URL lesen
         const orderId = Number(req.params.id);
 
+        // Bestellnummer überprüfen
         if (!Number.isInteger(orderId) || orderId <= 0) {
             await transaction.rollback();
 
@@ -531,6 +569,7 @@ app.delete("/api/orders/:id", verifyAdmin, async (req, res) => {
             });
         }
 
+        // Bestellung innerhalb der Transaktion suchen
         const order = await Order.findByPk(orderId, { transaction });
 
         if (!order) {
@@ -550,12 +589,14 @@ app.delete("/api/orders/:id", verifyAdmin, async (req, res) => {
         // Danach die Bestellung löschen
         await order.destroy({ transaction });
 
+        // Änderungen dauerhaft übernehmen
         await transaction.commit();
 
         return res.json({
             message: "Bestellung erfolgreich gelöscht."
         });
     } catch (error) {
+        // Bei einem Fehler alle Änderungen zurücknehmen
         await transaction.rollback();
 
         console.error("Fehler beim Löschen der Bestellung:", error);
@@ -565,10 +606,13 @@ app.delete("/api/orders/:id", verifyAdmin, async (req, res) => {
         });
     }
 });
-// Produktbild hochladen
-app.post("/api/upload", verifyAdmin ,(req, res, next) => {
+
+// Produktbild hochladen – nur für Admins
+app.post("/api/upload", verifyAdmin, (req, res, next) => {
+    // Upload ausführen und mögliche Fehler abfangen
     upload.single("image")(req, res, (err) => {
         if (err) {
+            // Fehler von Multer behandeln
             if (err instanceof multer.MulterError) {
                 return res.status(400).json({
                     message:
@@ -579,42 +623,50 @@ app.post("/api/upload", verifyAdmin ,(req, res, next) => {
                 });
             }
 
+            // Andere Upload-Fehler zurückgeben
             return res.status(400).json({
                 message: err.message || "Fehler beim Hochladen des Bildes."
             });
         }
 
+        // Anfrage nach erfolgreichem Upload weitergeben
         next();
     });
 }, (req, res) => {
+    // Prüfen, ob eine Datei hochgeladen wurde
     if (!req.file) {
         return res.status(400).json({
             message: "Bitte wählen Sie ein Bild aus."
         });
     }
 
+    // Relativen Pfad zum hochgeladenen Bild zurückgeben
     res.status(201).json({
         message: "Bild erfolgreich hochgeladen.",
         imageUrl: `/uploads/${req.file.filename}`
     });
 });
 
-/* Bestellungen des angemeldeten Kunden abrufen */
+// Bestellungen des angemeldeten Kunden abrufen
 app.get("/api/customer/orders", async (req, res) => {
     try {
+        // Authorization-Header auslesen
         const authHeader = req.headers.authorization;
 
+        // Token verlangen
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
             return res.status(401).json({
                 message: "Bitte melden Sie sich an."
             });
         }
 
+        // Token aus dem Header extrahieren
         const token = authHeader.slice(7);
 
         let decoded;
 
         try {
+            // Token überprüfen
             decoded = jwt.verify(token, process.env.JWT_SECRET);
         } catch {
             return res.status(401).json({
@@ -622,6 +674,7 @@ app.get("/api/customer/orders", async (req, res) => {
             });
         }
 
+        // Rolle und Kunden-ID überprüfen
         if (
             decoded.role !== "customer" ||
             !Number.isInteger(decoded.customerId)
@@ -631,6 +684,7 @@ app.get("/api/customer/orders", async (req, res) => {
             });
         }
 
+        // Nur Bestellungen dieses Kunden abrufen
         const orders = await Order.findAll({
             where: {
                 customerId: decoded.customerId
@@ -644,7 +698,6 @@ app.get("/api/customer/orders", async (req, res) => {
         });
 
         return res.status(200).json(orders);
-
     } catch (error) {
         console.error(
             "Fehler beim Laden der Kundenbestellungen:",
@@ -657,8 +710,9 @@ app.get("/api/customer/orders", async (req, res) => {
     }
 });
 
-/* Neue Bestellung erstellen */
+// Neue Bestellung erstellen
 app.post("/api/orders", async (req, res) => {
+    // Kundendaten aus dem Request-Body lesen
     const {
         customerName,
         customerEmail,
@@ -711,18 +765,20 @@ app.post("/api/orders", async (req, res) => {
         );
     }
 
+    // Warenkorb in ein Array umwandeln
     const cartItems = Array.from(quantities, ([productId, quantity]) => ({
         productId,
         quantity
     }));
 
-    // Optionales Kundenkonto prüfen
+    // Optionales Kundenkonto überprüfen
     let customerId = null;
 
     const authHeader = req.headers.authorization;
 
     // Ohne Token ist eine Gastbestellung erlaubt
     if (authHeader) {
+        // Bearer-Token aus dem Header extrahieren
         const token = authHeader.startsWith("Bearer ")
             ? authHeader.slice(7)
             : null;
@@ -734,11 +790,13 @@ app.post("/api/orders", async (req, res) => {
         }
 
         try {
+            // Token überprüfen
             const decoded = jwt.verify(
                 token,
                 process.env.JWT_SECRET
             );
 
+            // Prüfen, ob das Token zu einem Kunden gehört
             if (
                 decoded.role !== "customer" ||
                 !Number.isInteger(decoded.customerId)
@@ -748,6 +806,7 @@ app.post("/api/orders", async (req, res) => {
                 });
             }
 
+            // Kundenkonto in der Datenbank suchen
             const customer = await Customer.findByPk(
                 decoded.customerId
             );
@@ -759,7 +818,6 @@ app.post("/api/orders", async (req, res) => {
             }
 
             customerId = customer.id;
-
         } catch (err) {
             return res.status(401).json({
                 message: "Anmeldung abgelaufen. Bitte erneut anmelden."
@@ -767,16 +825,20 @@ app.post("/api/orders", async (req, res) => {
         }
     }
 
+    // Datenbanktransaktion für die Bestellung starten
     const transaction = await sequelize.transaction();
 
     try {
+        // Produkt-IDs aus dem Warenkorb ermitteln
         const productIds = cartItems.map(item => item.productId);
 
+        // Produkte aus der Datenbank laden
         const products = await Product.findAll({
             where: { id: productIds },
             transaction
         });
 
+        // Prüfen, ob alle Produkte existieren
         if (products.length !== productIds.length) {
             await transaction.rollback();
 
@@ -785,6 +847,7 @@ app.post("/api/orders", async (req, res) => {
             });
         }
 
+        // Produkte für einen schnellen Zugriff nach ID speichern
         const productMap = new Map(
             products.map(product => [Number(product.id), product])
         );
@@ -795,6 +858,7 @@ app.post("/api/orders", async (req, res) => {
         for (const item of cartItems) {
             const product = productMap.get(item.productId);
 
+            // Prüfen, ob genügend Produkte auf Lager sind
             if (product.stock < item.quantity) {
                 await transaction.rollback();
 
@@ -804,12 +868,14 @@ app.post("/api/orders", async (req, res) => {
                 });
             }
 
+            // Preis in Cent umrechnen, um Rundungsfehler zu reduzieren
             const priceCents = Math.round(Number(product.price) * 100);
 
+            // Gesamtbetrag berechnen
             totalCents += priceCents * item.quantity;
         }
 
-        // Bestellung speichern
+        // Bestellung in der Datenbank speichern
         const order = await Order.create({
             customerId: customerId,
             customerName: customerName.trim(),
@@ -821,10 +887,11 @@ app.post("/api/orders", async (req, res) => {
             status: "Neu"
         }, { transaction });
 
-        // Bestellpositionen speichern und Bestand reduzieren
+        // Bestellpositionen speichern und Lagerbestand reduzieren
         for (const item of cartItems) {
             const product = productMap.get(item.productId);
 
+            // Produktdaten zum Zeitpunkt der Bestellung speichern
             await OrderItem.create({
                 orderId: order.id,
                 productId: product.id,
@@ -834,18 +901,20 @@ app.post("/api/orders", async (req, res) => {
                     .toFixed(2)
             }, { transaction });
 
+            // Verfügbaren Lagerbestand reduzieren
             product.stock -= item.quantity;
             await product.save({ transaction });
         }
 
+        // Alle Änderungen gemeinsam übernehmen
         await transaction.commit();
 
         return res.status(201).json({
             message: "Bestellung erfolgreich gespeichert.",
             order
         });
-
     } catch (err) {
+        // Bei einem Fehler Änderungen zurücknehmen
         if (!transaction.finished) {
             await transaction.rollback();
         }
@@ -858,10 +927,10 @@ app.post("/api/orders", async (req, res) => {
     }
 });
 
-
-/* Alle Bestellungen für Admin abrufen */
+// Alle Bestellungen für Admin abrufen
 app.get("/api/orders", verifyAdmin, async (req, res) => {
     try {
+        // Bestellungen zusammen mit ihren Positionen laden
         const orders = await Order.findAll({
             include: [{
                 model: OrderItem
@@ -870,7 +939,6 @@ app.get("/api/orders", verifyAdmin, async (req, res) => {
         });
 
         return res.json(orders);
-
     } catch (err) {
         console.error("Fehler beim Laden der Bestellungen:", err);
 
@@ -880,10 +948,10 @@ app.get("/api/orders", verifyAdmin, async (req, res) => {
     }
 });
 
-
-/* Bestellstatus aktualisieren – nur für Admins */
+// Bestellstatus aktualisieren – nur für Admins
 app.patch("/api/orders/:id/status", verifyAdmin, async (req, res) => {
     try {
+        // Bestellnummer und neuen Status auslesen
         const orderId = Number(req.params.id);
         const { status } = req.body;
 
@@ -903,6 +971,7 @@ app.patch("/api/orders/:id/status", verifyAdmin, async (req, res) => {
             "Storniert"
         ];
 
+        // Prüfen, ob der Status erlaubt ist
         if (!allowedStatuses.includes(status)) {
             return res.status(400).json({
                 message: "Ungültiger Bestellstatus."
@@ -925,7 +994,6 @@ app.patch("/api/orders/:id/status", verifyAdmin, async (req, res) => {
             message: "Bestellstatus erfolgreich aktualisiert.",
             order
         });
-
     } catch (error) {
         console.error(
             "Fehler beim Aktualisieren des Bestellstatus:",
@@ -941,12 +1009,15 @@ app.patch("/api/orders/:id/status", verifyAdmin, async (req, res) => {
 // Server starten und Datenbank vorbereiten
 async function startServer() {
     try {
+        // Verbindung zur Datenbank prüfen
         await sequelize.authenticate();
         console.log("Datenbankverbindung erfolgreich.");
 
+        // Datenbanktabellen synchronisieren
         await sequelize.sync();
         console.log("Datenbank und Tabellen sind bereit.");
 
+        // Server starten und auf Anfragen warten
         app.listen(PORT, IP, () => {
             console.log(`Server läuft unter http://${IP}:${PORT}`);
         });
@@ -956,4 +1027,5 @@ async function startServer() {
     }
 }
 
+// Serverstart ausführen
 startServer();
